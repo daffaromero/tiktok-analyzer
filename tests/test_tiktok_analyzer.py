@@ -44,3 +44,32 @@ def test_parse_video_ids_dedupes_and_drops_invalid():
 
 def test_merge_video_ids_preserves_order_no_dups():
     assert ta.merge_video_ids(["1", "2"], ["2", "3"]) == ["1", "2", "3"]
+
+
+SAMPLE_VTT = """WEBVTT
+
+1
+00:00:00.000 --> 00:00:02.000
+hello everyone
+
+2
+00:00:02.000 --> 00:00:04.000
+hello everyone
+
+3
+00:00:04.000 --> 00:00:06.000
+welcome to <c>my</c> channel
+"""
+
+
+def test_vtt_to_text_basic():
+    out = ta.vtt_to_text(SAMPLE_VTT)
+    assert out == "hello everyone welcome to my channel"
+
+
+def test_vtt_to_text_empty():
+    assert ta.vtt_to_text("") == ""
+
+
+def test_vtt_to_text_header_only():
+    assert ta.vtt_to_text("WEBVTT\n\n") == ""

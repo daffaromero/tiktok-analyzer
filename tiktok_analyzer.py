@@ -50,3 +50,31 @@ def merge_video_ids(discovered: List[str], explicit: List[str]) -> List[str]:
     for vid in list(discovered or []) + list(explicit or []):
         out[vid] = None
     return list(out.keys())
+
+
+_TS_RE = re.compile(r"-->")
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def vtt_to_text(raw: str) -> str:
+    """Convert WebVTT (or SRT-ish) subtitle text to a single plain string."""
+    if not raw:
+        return ""
+    lines: List[str] = []
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s == "WEBVTT" or s.startswith("WEBVTT"):
+            continue
+        if _TS_RE.search(s):
+            continue
+        if s.isdigit():  # cue index
+            continue
+        s = _TAG_RE.sub("", s).strip()
+        if not s:
+            continue
+        if lines and lines[-1] == s:  # collapse consecutive duplicates
+            continue
+        lines.append(s)
+    return " ".join(lines)
