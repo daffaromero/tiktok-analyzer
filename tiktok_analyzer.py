@@ -233,3 +233,136 @@ def export_workbook(tables: Dict[str, pd.DataFrame], out_dir: str,
         df.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
     return str(xlsx_path.resolve())
+
+
+# --- Async collection layer (network; verified by manual smoke test) ---------
+import asyncio  # noqa: E402
+
+import httpx  # noqa: E402
+
+
+def pick_subtitle_info(subtitle_infos: List[dict]) -> Optional[dict]:
+    """Pick the best subtitle entry by preferred language, else the first."""
+    if not subtitle_infos:
+        return None
+    def rank(info: dict) -> int:
+        lang = info.get("LanguageCodeName", "")
+        return (PREFERRED_SUBTITLE_LANGS.index(lang)
+                if lang in PREFERRED_SUBTITLE_LANGS else len(PREFERRED_SUBTITLE_LANGS))
+    return sorted(subtitle_infos, key=rank)[0]
+
+
+def _subtitle_url(info: dict) -> str:
+    if not info:
+        return ""
+    if info.get("Url"):
+        return info["Url"]
+    url_list = info.get("UrlList") or []
+    return url_list[0] if url_list else ""
+
+
+async def _http_get_text(url: str) -> str:
+    """Default subtitle downloader."""
+    headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.tiktok.com/"}
+    async with httpx.AsyncClient(timeout=20, headers=headers) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.text
+
+
+async def fetch_subtitle(as_dict: dict, http_get=_http_get_text) -> Optional[dict]:
+    """Return {'lang','text'} for the best available subtitle, or None."""
+    video_meta = (as_dict or {}).get("video") or {}
+    infos = video_meta.get("subtitleInfos") or []
+    info = pick_subtitle_info(infos)
+    url = _subtitle_url(info)
+    if not url:
+        return None
+    try:
+        raw = await http_get(url)
+    except Exception:
+        return None
+    text = vtt_to_text(raw)
+    if not text:
+        return None
+    return {"lang": info.get("LanguageCodeName", ""), "text": text}
+
+
+async def _create_api(ms_token: Optional[str], log):
+    """Create a TikTokApi session. Tries auto ms_token, then provided token."""
+    from TikTokApi import TikTokApi  # imported lazily so unit tests need no install
+    api = TikTokApi()
+    tokens = [ms_token] if ms_token else None
+    await api.create_sessions(ms_tokens=tokens, num_sessions=1, sleep_after=3,
+                              browser="chromium", headless=True)
+    log("TikTok session created.")
+    return api
+
+
+async def _discover_hashtag_ids(api, hashtag: str, max_videos: int, log) -> List[str]:
+    ids: List[str] = []
+    if not hashtag:
+        return ids
+    log("Discovering videos for #{} ...".format(hashtag))
+    tag = api.hashtag(name=hashtag)
+    async for video in tag.videos(count=max_videos):
+        ids.append(str(video.id))
+    log("Discovered {} videos.".format(len(ids)))
+    return ids
+
+
+async def collect(config: dict, log=print) -> Dict[str, pd.DataFrame]:
+    """Top-level orchestration. config keys:
+        hashtag, video_ids, max_videos, comments_per_video, ms_token, sleep_seconds.
+    Returns {'Videos','Comments','Subtitles','Summary'} DataFrames.
+    """
+    hashtag = (config.get("hashtag") or "").strip().lstrip("#")
+    explicit_ids = parse_video_ids(config.get("video_ids") or [])
+    max_videos = int(config.get("max_videos", 30))
+    comments_per_video = int(config.get("comments_per_video", 50))
+    ms_token = config.get("ms_token") or None
+    sleep_seconds = float(config.get("sleep_seconds", 2))
+
+    video_records: List[dict] = []
+    comment_records: List[dict] = []
+    subtitle_records: List[dict] = []
+
+    api = await _create_api(ms_token, log)
+    try:
+        discovered = await _discover_hashtag_ids(api, hashtag, max_videos, log)
+        target_ids = merge_video_ids(discovered, explicit_ids)
+        log("Fetching {} unique videos...".format(len(target_ids)))
+
+        for i, vid in enumerate(target_ids, 1):
+            try:
+                video = api.video(id=vid)
+                as_dict = await video.info()
+
+                sub = await fetch_subtitle(as_dict)
+                video_records.append(video_record(as_dict, has_subtitles=bool(sub)))
+                if sub:
+                    subtitle_records.append(
+                        {"video_id": vid, "lang": sub["lang"], "text": sub["text"]})
+
+                async for c in video.comments(count=comments_per_video):
+                    comment_records.append(comment_record(c.as_dict, vid))
+
+                log("[{}/{}] {} — {} comments, subtitles: {}".format(
+                    i, len(target_ids), vid,
+                    sum(1 for r in comment_records if r["video_id"] == vid),
+                    "yes" if sub else "no"))
+            except Exception as e:  # one bad video must not kill the run
+                log("[{}/{}] {} — SKIPPED ({})".format(i, len(target_ids), vid, e))
+            await asyncio.sleep(sleep_seconds)
+    finally:
+        try:
+            await api.close_sessions()
+        except Exception:
+            pass
+
+    videos_df = build_videos_df(video_records)
+    comments_df = build_comments_df(comment_records)
+    subtitles_df = build_subtitles_df(subtitle_records)
+    summary_df = build_summary_df(videos_df, comments_df)
+    return {"Videos": videos_df, "Comments": comments_df,
+            "Subtitles": subtitles_df, "Summary": summary_df}

@@ -216,3 +216,21 @@ def test_export_workbook(tmp_path):
     # Re-read the workbook and check a known sheet/value
     back = pd.read_excel(xlsx_path, sheet_name="Videos")
     assert str(back.iloc[0]["video_id"]) == "7251234567890123456"
+
+
+def test_pick_subtitle_info_prefers_english():
+    infos = [
+        {"LanguageCodeName": "ind", "Url": "u_ind", "Format": "webvtt"},
+        {"LanguageCodeName": "eng-US", "Url": "u_en", "Format": "webvtt"},
+    ]
+    picked = ta.pick_subtitle_info(infos)
+    assert picked["Url"] == "u_en"
+
+
+def test_pick_subtitle_info_fallback_first():
+    infos = [{"LanguageCodeName": "fra", "Url": "u_fr"}]
+    assert ta.pick_subtitle_info(infos)["Url"] == "u_fr"
+
+
+def test_pick_subtitle_info_empty():
+    assert ta.pick_subtitle_info([]) is None
