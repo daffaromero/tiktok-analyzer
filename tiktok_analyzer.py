@@ -216,3 +216,20 @@ def build_summary_df(videos_df: pd.DataFrame, comments_df: pd.DataFrame,
                          "value": c.get("likes", 0)})
 
     return pd.DataFrame(rows, columns=["section", "item", "value"])
+
+
+def export_workbook(tables: Dict[str, pd.DataFrame], out_dir: str,
+                    source_label: str, date_str: str) -> str:
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    xlsx_path = out / "tiktok_{}_{}.xlsx".format(source_label, date_str)
+
+    with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+        for sheet, df in tables.items():
+            df.to_excel(writer, sheet_name=sheet[:31], index=False)
+
+    for key, df in tables.items():
+        csv_path = out / "{}_{}_{}.csv".format(source_label, date_str, key)
+        df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+
+    return str(xlsx_path.resolve())

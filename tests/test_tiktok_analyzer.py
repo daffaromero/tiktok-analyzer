@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pandas as pd
 import tiktok_analyzer as ta
 
 
@@ -194,3 +195,24 @@ def test_build_summary_top_hashtags_and_comments():
 def test_build_summary_handles_empty():
     summary = ta.build_summary_df(ta.build_videos_df([]), ta.build_comments_df([]))
     assert list(summary.columns) == ["section", "item", "value"]
+
+
+def test_export_workbook(tmp_path):
+    tables = {
+        "Videos": ta.build_videos_df([
+            ta.video_record(VIDEO_AS_DICT, has_subtitles=False)]),
+        "Comments": ta.build_comments_df([
+            ta.comment_record(COMMENT_AS_DICT, "7251234567890123456")]),
+        "Subtitles": ta.build_subtitles_df([]),
+        "Summary": ta.build_summary_df(
+            ta.build_videos_df([]), ta.build_comments_df([])),
+    }
+    xlsx_path = ta.export_workbook(tables, str(tmp_path), "coffee", "2026-06-24")
+    assert Path(xlsx_path).exists()
+    assert xlsx_path.endswith("tiktok_coffee_2026-06-24.xlsx")
+    # CSVs written per table
+    assert (tmp_path / "coffee_2026-06-24_Videos.csv").exists()
+    assert (tmp_path / "coffee_2026-06-24_Comments.csv").exists()
+    # Re-read the workbook and check a known sheet/value
+    back = pd.read_excel(xlsx_path, sheet_name="Videos")
+    assert str(back.iloc[0]["video_id"]) == "7251234567890123456"
