@@ -144,3 +144,53 @@ def test_comment_record_missing_fields():
     assert rec["text"] == ""
     assert rec["likes"] == 0
     assert rec["author"] == ""
+
+
+def test_build_videos_df_columns_and_empty():
+    df = ta.build_videos_df([])
+    assert list(df.columns) == ta.VIDEO_COLUMNS
+    assert len(df) == 0
+
+
+def test_build_videos_df_rows():
+    rec = ta.video_record(VIDEO_AS_DICT, has_subtitles=False)
+    df = ta.build_videos_df([rec])
+    assert len(df) == 1
+    assert df.iloc[0]["video_id"] == "7251234567890123456"
+    assert list(df.columns) == ta.VIDEO_COLUMNS
+
+
+def test_build_comments_df_columns():
+    df = ta.build_comments_df([])
+    assert list(df.columns) == ta.COMMENT_COLUMNS
+
+
+def test_build_subtitles_df():
+    df = ta.build_subtitles_df([{"video_id": "1", "lang": "eng-US", "text": "hello"}])
+    assert list(df.columns) == ta.SUBTITLE_COLUMNS
+    assert df.iloc[0]["text"] == "hello"
+
+
+def test_build_summary_top_hashtags_and_comments():
+    videos = ta.build_videos_df([
+        ta.video_record({"id": "1", "desc": "#coffee #tea", "author": {"uniqueId": "a"},
+                          "stats": {"diggCount": 1}}, False),
+        ta.video_record({"id": "2", "desc": "#coffee", "author": {"uniqueId": "b"},
+                         "stats": {"diggCount": 1}}, False),
+    ])
+    comments = ta.build_comments_df([
+        ta.comment_record({"cid": "1", "text": "great", "digg_count": 50}, "1"),
+        ta.comment_record({"cid": "2", "text": "ok", "digg_count": 5}, "1"),
+    ])
+    summary = ta.build_summary_df(videos, comments, top_n=5)
+    assert list(summary.columns) == ["section", "item", "value"]
+    hashtags = summary[summary["section"] == "top_hashtags"]
+    top = hashtags.iloc[0]
+    assert top["item"] == "coffee" and top["value"] == 2
+    top_comments = summary[summary["section"] == "top_comments"]
+    assert top_comments.iloc[0]["item"] == "great"
+
+
+def test_build_summary_handles_empty():
+    summary = ta.build_summary_df(ta.build_videos_df([]), ta.build_comments_df([]))
+    assert list(summary.columns) == ["section", "item", "value"]

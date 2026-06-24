@@ -144,3 +144,75 @@ def comment_record(c: dict, video_id: str) -> dict:
         "author": user.get("unique_id", "") or "",
         "created": c.get("create_time", ""),
     }
+
+
+VIDEO_COLUMNS = [
+    "video_id", "url", "author", "caption", "created",
+    "likes", "comment_count", "share_count", "play_count",
+    "hashtags", "has_subtitles",
+]
+COMMENT_COLUMNS = [
+    "video_id", "comment_id", "text", "likes", "reply_count", "author", "created",
+]
+SUBTITLE_COLUMNS = ["video_id", "lang", "text"]
+
+_WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
+_STOPWORDS = {
+    "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "for", "is",
+    "it", "this", "that", "i", "you", "so", "my", "me", "we", "be", "are", "was",
+    "with", "at", "as", "if", "im", "its", "do", "not", "no", "yes",
+}
+
+
+def _df(records: List[dict], columns: List[str]) -> pd.DataFrame:
+    df = pd.DataFrame(records or [], columns=columns)
+    return df.reindex(columns=columns)
+
+
+def build_videos_df(records: List[dict]) -> pd.DataFrame:
+    return _df(records, VIDEO_COLUMNS)
+
+
+def build_comments_df(records: List[dict]) -> pd.DataFrame:
+    return _df(records, COMMENT_COLUMNS)
+
+
+def build_subtitles_df(records: List[dict]) -> pd.DataFrame:
+    return _df(records, SUBTITLE_COLUMNS)
+
+
+def _counter_rows(section: str, counter: Counter, top_n: int) -> List[dict]:
+    return [
+        {"section": section, "item": item, "value": count}
+        for item, count in counter.most_common(top_n)
+    ]
+
+
+def build_summary_df(videos_df: pd.DataFrame, comments_df: pd.DataFrame,
+                     top_n: int = 15) -> pd.DataFrame:
+    rows: List[dict] = []
+
+    hashtag_counter: Counter = Counter()
+    for cell in videos_df.get("hashtags", pd.Series(dtype=str)).fillna(""):
+        for tag in [t.strip() for t in str(cell).split(",") if t.strip()]:
+            hashtag_counter[tag] += 1
+    rows += _counter_rows("top_hashtags", hashtag_counter, top_n)
+
+    emoji_counter: Counter = Counter()
+    word_counter: Counter = Counter()
+    for cell in comments_df.get("text", pd.Series(dtype=str)).fillna(""):
+        text = str(cell)
+        emoji_counter.update(extract_emojis(text))
+        for w in _WORD_RE.findall(text.lower()):
+            if len(w) > 2 and w not in _STOPWORDS:
+                word_counter[w] += 1
+    rows += _counter_rows("top_emojis", emoji_counter, top_n)
+    rows += _counter_rows("top_words", word_counter, top_n)
+
+    if len(comments_df) and "likes" in comments_df:
+        top_comments = comments_df.sort_values("likes", ascending=False).head(top_n)
+        for _, c in top_comments.iterrows():
+            rows.append({"section": "top_comments", "item": c.get("text", ""),
+                         "value": c.get("likes", 0)})
+
+    return pd.DataFrame(rows, columns=["section", "item", "value"])
