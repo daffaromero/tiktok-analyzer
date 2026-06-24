@@ -73,3 +73,74 @@ def test_vtt_to_text_empty():
 
 def test_vtt_to_text_header_only():
     assert ta.vtt_to_text("WEBVTT\n\n") == ""
+
+
+def test_extract_hashtags():
+    assert ta.extract_hashtags("Love #Coffee and #coffee #Latte!") == ["coffee", "latte"]
+
+
+def test_extract_hashtags_none():
+    assert ta.extract_hashtags("") == []
+
+
+def test_extract_emojis():
+    assert ta.extract_emojis("nice ☕ day 🎉🎉") == ["☕", "🎉", "🎉"]
+
+
+VIDEO_AS_DICT = {
+    "id": "7251234567890123456",
+    "desc": "morning #coffee ☕",
+    "createTime": 1700000000,
+    "author": {"uniqueId": "barista_jo"},
+    "stats": {"diggCount": 1200, "commentCount": 45, "shareCount": 8, "playCount": 99000},
+}
+
+
+def test_video_record():
+    rec = ta.video_record(VIDEO_AS_DICT, has_subtitles=True)
+    assert rec["video_id"] == "7251234567890123456"
+    assert rec["author"] == "barista_jo"
+    assert rec["caption"] == "morning #coffee ☕"
+    assert rec["likes"] == 1200
+    assert rec["comment_count"] == 45
+    assert rec["share_count"] == 8
+    assert rec["play_count"] == 99000
+    assert rec["hashtags"] == "coffee"
+    assert rec["has_subtitles"] is True
+    assert rec["url"] == "https://www.tiktok.com/@barista_jo/video/7251234567890123456"
+
+
+def test_video_record_missing_fields():
+    rec = ta.video_record({"id": "123456"}, has_subtitles=False)
+    assert rec["video_id"] == "123456"
+    assert rec["author"] == ""
+    assert rec["likes"] == 0
+    assert rec["hashtags"] == ""
+
+
+COMMENT_AS_DICT = {
+    "cid": "999",
+    "text": "love this 🎉",
+    "digg_count": 17,
+    "reply_comment_total": 2,
+    "create_time": 1700000500,
+    "user": {"unique_id": "fan_a"},
+}
+
+
+def test_comment_record():
+    rec = ta.comment_record(COMMENT_AS_DICT, "7251234567890123456")
+    assert rec["video_id"] == "7251234567890123456"
+    assert rec["comment_id"] == "999"
+    assert rec["text"] == "love this 🎉"
+    assert rec["likes"] == 17
+    assert rec["reply_count"] == 2
+    assert rec["author"] == "fan_a"
+    assert rec["created"] == 1700000500
+
+
+def test_comment_record_missing_fields():
+    rec = ta.comment_record({"cid": "1"}, "123")
+    assert rec["text"] == ""
+    assert rec["likes"] == 0
+    assert rec["author"] == ""

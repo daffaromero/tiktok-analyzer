@@ -78,3 +78,69 @@ def vtt_to_text(raw: str) -> str:
             continue
         lines.append(s)
     return " ".join(lines)
+
+
+_HASHTAG_RE = re.compile(r"#(\w+)", re.UNICODE)
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"
+    "\U00002600-\U000027BF"
+    "\U0001F1E6-\U0001F1FF"
+    "\U00002190-\U000021FF"
+    "\U00002B00-\U00002BFF"
+    "]",
+    flags=re.UNICODE,
+)
+
+
+def extract_hashtags(desc: str) -> List[str]:
+    if not desc:
+        return []
+    out: "OrderedDict[str, None]" = OrderedDict()
+    for tag in _HASHTAG_RE.findall(desc):
+        out[tag.lower()] = None
+    return list(out.keys())
+
+
+def extract_emojis(text: str) -> List[str]:
+    if not text:
+        return []
+    return _EMOJI_RE.findall(text)
+
+
+def video_record(d: dict, has_subtitles: bool) -> dict:
+    d = d or {}
+    stats = d.get("stats") or {}
+    author = (d.get("author") or {}).get("uniqueId", "")
+    vid = str(d.get("id", ""))
+    desc = d.get("desc", "") or ""
+    url = ""
+    if author and vid:
+        url = "https://www.tiktok.com/@{}/video/{}".format(author, vid)
+    return {
+        "video_id": vid,
+        "url": url,
+        "author": author,
+        "caption": desc,
+        "created": d.get("createTime", ""),
+        "likes": stats.get("diggCount", 0) or 0,
+        "comment_count": stats.get("commentCount", 0) or 0,
+        "share_count": stats.get("shareCount", 0) or 0,
+        "play_count": stats.get("playCount", 0) or 0,
+        "hashtags": ", ".join(extract_hashtags(desc)),
+        "has_subtitles": bool(has_subtitles),
+    }
+
+
+def comment_record(c: dict, video_id: str) -> dict:
+    c = c or {}
+    user = c.get("user") or {}
+    return {
+        "video_id": str(video_id),
+        "comment_id": str(c.get("cid", "")),
+        "text": c.get("text", "") or "",
+        "likes": c.get("digg_count", 0) or 0,
+        "reply_count": c.get("reply_comment_total", 0) or 0,
+        "author": user.get("unique_id", "") or "",
+        "created": c.get("create_time", ""),
+    }
