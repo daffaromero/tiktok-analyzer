@@ -35,7 +35,14 @@ def normalize_video_id(value: str) -> Optional[str]:
 
 
 def parse_video_ids(values: List[str]) -> List[str]:
-    """Normalize a list of ids/URLs, drop invalid, dedupe preserving order."""
+    """Normalize a list of ids/URLs, drop invalid, dedupe preserving order.
+
+    Tolerates a lone string (a common mistake: ``VIDEO_IDS = "123..."`` without
+    the list brackets) by treating it as a single id rather than iterating its
+    characters.
+    """
+    if isinstance(values, str):
+        values = [values]
     out: "OrderedDict[str, None]" = OrderedDict()
     for v in values or []:
         vid = normalize_video_id(v)
@@ -50,6 +57,16 @@ def merge_video_ids(discovered: List[str], explicit: List[str]) -> List[str]:
     for vid in list(discovered or []) + list(explicit or []):
         out[vid] = None
     return list(out.keys())
+
+
+def video_page_url(video_id: str) -> str:
+    """Canonical URL TikTokApi can fetch info/comments from, given only an id.
+
+    This version's ``api.video(id=...).info()`` raises unless a URL is set, so
+    we always build the video from a URL. A placeholder username is accepted —
+    TikTok resolves on the numeric id.
+    """
+    return "https://www.tiktok.com/@/video/{}".format(video_id)
 
 
 _TS_RE = re.compile(r"-->")
@@ -335,7 +352,7 @@ async def collect(config: dict, log=print) -> Dict[str, pd.DataFrame]:
 
         for i, vid in enumerate(target_ids, 1):
             try:
-                video = api.video(id=vid)
+                video = api.video(url=video_page_url(vid))
                 as_dict = await video.info()
 
                 sub = await fetch_subtitle(as_dict)

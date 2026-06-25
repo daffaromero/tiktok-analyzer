@@ -234,3 +234,16 @@ def test_pick_subtitle_info_fallback_first():
 
 def test_pick_subtitle_info_empty():
     assert ta.pick_subtitle_info([]) is None
+
+
+def test_video_page_url():
+    # TikTokApi's video.info()/comments() require a URL, not just an id.
+    # A placeholder username is accepted; the id is what TikTok resolves on.
+    assert ta.video_page_url("7444617089748438294") == \
+        "https://www.tiktok.com/@/video/7444617089748438294"
+
+
+def test_parse_video_ids_accepts_bare_string():
+    # A non-engineer may pass VIDEO_IDS = "7251234567890123456" without the list
+    # brackets. Treat a lone string as a single id rather than iterating chars.
+    assert ta.parse_video_ids("7251234567890123456") == ["7251234567890123456"]
